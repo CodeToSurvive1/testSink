@@ -57,132 +57,164 @@ import org.slf4j.LoggerFactory;
  *  source: String -> @source: String
  * </pre>
  *
- * @see https
- * ://github.com/logstash/logstash/wiki/logstash%27s-internal-message-
- * format
+ * @see https://github.com/logstash/logstash/wiki/logstash%27s-internal-message-format
  */
 public class ElasticSearchMqSeri implements
-        ElasticSearchEventSerializer {
+		ElasticSearchEventSerializer {
 
-    private static final Logger logger = LoggerFactory
-            .getLogger(ElasticSearchSink.class);
+	private static final Logger logger = LoggerFactory
+			.getLogger(ElasticSearchMqSeri.class);
 
-    private static String[] ignoreStrs = new String[]{"msg", "qurity"};
+	private static String[] ignoreStrs = new String[]{"msg", "qurity"};
 
-    private static List<String> ignores = new ArrayList<String>();
+	private static List<String> ignores = new ArrayList<String>();
 
-    public XContentBuilder getContentBuilder(Event event) throws IOException {
-        System.out.println("");
-        logger.debug("hello...");
+	public XContentBuilder getContentBuilder(Event event) throws IOException {
+		XContentBuilder builder = jsonBuilder().startObject();
+		init();
+		appendBody(builder, event);
+		appendHeaders(builder, event);
+		return builder;
+	}
 
-        XContentBuilder builder = jsonBuilder().startObject();
-        System.out.println("init");
-        logger.debug("init...");
+	private void init() {
+		for (String str : ignoreStrs) {
+			ignores.add(str);
+		}
+	}
+
+	private void appendBody(XContentBuilder builder, Event event)
+			throws IOException {
+		byte[] body = event.getBody();
+		String msg = new String(body);
+		logger.info(msg);
+		String patten = "(.*cost time\\s*(:|：))\\s*(\\d+)\\s*\\w*.*";
+		String str = msg.replaceFirst(patten, "$3");
+		try {
+			builder.field("@cost-time", Long.parseLong(str));
+		} catch (Exception e) {
+			logger.error("es field cost-time add error ");
+		}
 
 
-        init();
-        System.out.println("append");
-        logger.debug("append...");
+		String pattern = "(.*request url=|.*request:)(\\S+)(\\s*.*)";
+
+		// 创建 Pattern 对象
+		Pattern r = Pattern.compile(pattern);
+
+		// 现在创建 matcher 对象
+		Matcher m = r.matcher(msg);
+		if (m.find()) {
+			logger.info("Found value: " + m.group(2));
+			try {
+				builder.field("@request-url", m.group(2));
+			} catch (Exception e) {
+				logger.info("es field request-url add error ");
+			}
+		} else {
+			logger.info("NO MATCH request url");
+		}
 
 
-        appendBody(builder, event);
-        System.out.println("head");
-        logger.debug("head...");
-
-
-        appendHeaders(builder, event);
-        return builder;
-    }
-
-    private void init() {
-        for (String str : ignoreStrs) {
-            ignores.add(str);
-        }
-    }
-
-    private void appendBody(XContentBuilder builder, Event event)
-            throws IOException, UnsupportedEncodingException {
-        byte[] body = event.getBody();
-        String msg = new String(body);
-        System.out.println(msg);
-        String patten = "(.*cost time\\s*(:|：))\\s*(\\d+)\\s*\\w*.*";
-        String str = msg.replaceFirst(patten, "$3");
-        try {
-            builder.field("@cost-time", Long.parseLong(str));
-        } catch (Exception e) {
-
-        }
 //	ContentBuilderUtil.appendField(builder, "@cost-time", str.getBytes());
-        ContentBuilderUtil.appendField(builder, "@message", body);
-    }
+		ContentBuilderUtil.appendField(builder, "@message", body);
+	}
 
-    private void appendHeaders(XContentBuilder builder, Event event)
-            throws IOException {
-        Map<String, String> headers = Maps.newHashMap(event.getHeaders());
+	private void appendHeaders(XContentBuilder builder, Event event)
+			throws IOException {
+		Map<String, String> headers = Maps.newHashMap(event.getHeaders());
 
-        String timestamp = headers.get("timestamp");
-        if (!StringUtils.isBlank(timestamp)
-                && StringUtils.isBlank(headers.get("@timestamp"))) {
-            long timestampMs = Long.parseLong(timestamp);
-            builder.field("@timestamp", new Date(timestampMs));
-        } else {
-            builder.field("@timestamp", new Date());
-        }
+		String timestamp = headers.get("timestamp");
+		if (!StringUtils.isBlank(timestamp)
+				&& StringUtils.isBlank(headers.get("@timestamp"))) {
+			long timestampMs = Long.parseLong(timestamp);
+			builder.field("@timestamp", new Date(timestampMs));
+		} else {
+			builder.field("@timestamp", new Date());
+		}
 
-        String source = headers.get("source");
-        if (!StringUtils.isBlank(source)
-                && StringUtils.isBlank(headers.get("@source"))) {
-            ContentBuilderUtil.appendField(builder, "@source",
-                    source.getBytes(charset));
-        }
+		String source = headers.get("source");
+		if (!StringUtils.isBlank(source)
+				&& StringUtils.isBlank(headers.get("@source"))) {
+			ContentBuilderUtil.appendField(builder, "@source",
+					source.getBytes(charset));
+		}
 
-        String type = headers.get("type");
-        if (!StringUtils.isBlank(type)
-                && StringUtils.isBlank(headers.get("@type"))) {
-            ContentBuilderUtil.appendField(builder, "@type", type.getBytes(charset));
-        }
+		String type = headers.get("type");
+		if (!StringUtils.isBlank(type)
+				&& StringUtils.isBlank(headers.get("@type"))) {
+			ContentBuilderUtil.appendField(builder, "@type", type.getBytes(charset));
+		}
 
-        String host = headers.get("host");
-        if (!StringUtils.isBlank(host)
-                && StringUtils.isBlank(headers.get("@source_host"))) {
-            ContentBuilderUtil.appendField(builder, "@source_host",
-                    host.getBytes(charset));
-        }
+		String host = headers.get("host");
+		if (!StringUtils.isBlank(host)
+				&& StringUtils.isBlank(headers.get("@source_host"))) {
+			ContentBuilderUtil.appendField(builder, "@source_host",
+					host.getBytes(charset));
+		}
 
-        String srcPath = headers.get("src_path");
-        if (!StringUtils.isBlank(srcPath)
-                && StringUtils.isBlank(headers.get("@source_path"))) {
-            ContentBuilderUtil.appendField(builder, "@source_path",
-                    srcPath.getBytes(charset));
-        }
+		String srcPath = headers.get("src_path");
+		if (!StringUtils.isBlank(srcPath)
+				&& StringUtils.isBlank(headers.get("@source_path"))) {
+			ContentBuilderUtil.appendField(builder, "@source_path",
+					srcPath.getBytes(charset));
+		}
 
-        builder.startObject("@fields");
-        for (String key : headers.keySet()) {
-            if (key.equals("cost-time")) {
+		builder.startObject("@fields");
+		for (String key : headers.keySet()) {
+			if (key.equals("cost-time")) {
 //		   builder.field("@cost-time", Long.parseLong(headers.get(key)));
-                continue;
-            }
-            if (ignores.contains(key)) {
-                continue;
-            }
-            byte[] val = headers.get(key).getBytes(charset);
-            ContentBuilderUtil.appendField(builder, key, val);
-        }
-        builder.endObject();
-    }
+				continue;
+			}
+			if (ignores.contains(key)) {
+				continue;
+			}
+			byte[] val = headers.get(key).getBytes(charset);
+			ContentBuilderUtil.appendField(builder, key, val);
+		}
+		builder.endObject();
+	}
 
-    public void configure(Context context) {
-        // NO-OP...
-    }
+	public void configure(Context context) {
+		// NO-OP...
+	}
 
-    public void configure(ComponentConfiguration conf) {
-        // NO-OP...
-    }
-// public static void main(String[] args) {
-//	String str = "[json_server][][WARN ](ApplicationFilter.java:107) - 2017-09-11 13:48:25,395 request:/cmc/reply/api/record/list cost time ： 15ms. ";
-////	String patten = "(.*cost time\\s*:)\\s*(\\d+)\\s*\\w*";
-//	String patten = "(.*cost time\\s*(:|：))\\s*(\\d+)\\s*\\w*.*";
-//	str = str.replaceFirst(patten, "$3");
-//	System.out.println(str);
-//}
+	public void configure(ComponentConfiguration conf) {
+		// NO-OP...
+	}
+
+	public static void main(String[] args) {
+//		String str = "[json_server][][WARN ](ApplicationFilter.java:107) - 2017-09-11 13:48:25,395 request:/cmc/reply/api/record/list cost time ： 15ms. ";
+//	String patten = "(.*cost time\\s*:)\\s*(\\d+)\\s*\\w*";
+//		String patten = "(.*cost time\\s*(:|：))\\s*(\\d+)\\s*\\w*.*";
+
+//		String str = "[json_server][message-222.77.64.74-22619645-qz_ssxc][INFO ](ApplicationFilter.java:125) - 2017-11-20 08:55:21,322 request url=/message/ems/copy/22693597003 cost time:15337ms. the request is slowly;serviceName=message";
+
+//		String patten = "(.*request url=)(\\S+)(\\s*.*)";
+//
+//		str = str.replaceFirst(patten, "$2");
+//		System.out.println(str);
+
+
+//		String line = "[json_server][][WARN ](ApplicationFilter.java:107) - 2017-09-11 13:48:25,395 request:/cmc/reply/api/record/list cost time ： 15ms. ";
+//		String line = "[json_server][message-222.77.64.74-22619645-qz_ssxc][INFO ](ApplicationFilter.java:125) - 2017-11-20 08:55:21,322 request url=/message/ems/copy/22693597003 cost time:15337ms. the request is slowly;serviceName=message";
+
+//		String pattern = "(.*request url=)(\\S+)(\\s*.*)";
+//		String pattern = "(.*request:)(\\S+)(\\s*.*)";
+//		String pattern = "(.*request url=|.*request:)(\\S+)(\\s*.*)";
+//
+//
+//		// 创建 Pattern 对象
+//		Pattern r = Pattern.compile(pattern);
+//
+//		// 现在创建 matcher 对象
+//		Matcher m = r.matcher(line);
+//		if (m.find()) {
+////			System.out.println("Found value: " + m.group(0));
+////			System.out.println("Found value: " + m.group(1));
+//			System.out.println("Found value: " + m.group(2));
+//		} else {
+//			System.out.println("NO MATCH");
+//		}
+	}
 }
